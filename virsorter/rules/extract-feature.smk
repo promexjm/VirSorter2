@@ -6,7 +6,7 @@ rule gff_feature:
     conda: '{}/vs2.yaml'.format(Conda_yaml_dir)
     shell:
         """
-        python {Scriptdir}/extract-feature-from-gff.py {Dbdir}/rbs/rbs-catetory.tsv {input} {output} &> {log} || {{ echo "See error details in {log}" | python {Scriptdir}/echo.py --level error; exit 1; }}
+        python {Scriptdir}/extract-feature-from-gff.py {Dbdir}/rbs/rbs-catetory.tsv {input} {output} &> {log} || {{ echo "See error details in {Wkdir}/{log}" | python {Scriptdir}/echo.py --level error; exit 1; }}
         """
 
 rule gff_feature_by_group:
@@ -17,7 +17,7 @@ rule gff_feature_by_group:
     conda: '{}/vs2.yaml'.format(Conda_yaml_dir)
     shell:
         """
-        Log=log/iter-0/step2-extract-feature/extract-feature-from-gff-{wildcards.group}.log
+        Log={Wkdir}/log/iter-0/step2-extract-feature/extract-feature-from-gff-{wildcards.group}.log
         Rbs_pdg_db={Dbdir}/group/{wildcards.group}/rbs-prodigal-train.db
         if [ -s $Rbs_pdg_db ]; then
             python {Scriptdir}/extract-feature-from-gff.py {Dbdir}/rbs/rbs-catetory.tsv {input.gff} {output} &> $Log || {{ echo "See error details in $Log" | python {Scriptdir}/echo.py --level error; exit 1; }}
@@ -28,14 +28,17 @@ rule gff_feature_by_group:
 
 localrules: split_faa
 checkpoint split_faa:
-    input: 'iter-0/all.pdg.faa'
-    output: directory('iter-0/all.pdg.faa.splitdir')
+    input: f'{Tmpdir}/all.pdg.faa'
+    output: directory(f'{Tmpdir}/all.pdg.faa.splitdir')
     conda: '{}/vs2.yaml'.format(Conda_yaml_dir)
     shell:
         """
         Log={Wkdir}/log/iter-0/step1-pp/split-faa-common.log
         Total=$(grep -v '^>' {input} | wc -c)
         Bname=$(basename {input})
+
+        rm -f {Tmpdir}/all.pdg.faa.splitdir/all.pdg.faa.*.split.*.splithmmtbl
+
         if [ {Provirus} != True ] && [ {Max_orf_per_seq} -ne -1 ]; then
             echo "provirus mode is off; MAX_ORF_PER_SEQ set to {Max_orf_per_seq}; subsampling orf when orf number in a contig exceeds {Max_orf_per_seq} to speed up the run" | python {Scriptdir}/echo.py
             python {Scriptdir}/subsample-faa.py {Max_orf_per_seq} {input} > iter-0/$Bname.ss
@@ -62,7 +65,11 @@ rule hmmsearch:
         if [ $Domain = "Viruses" ]; then
             Hmmdb={Dbdir}/hmm/viral/combined.hmm
         else
-            Hmmdb={Dbdir}/hmm/pfam/Pfam-A-{wildcards.domain}.hmm
+            Domain2=$Domain
+            if [ $Domain2 = "Pfamviruses" ]; then
+                Domain2=Viruses
+            fi
+            Hmmdb={Dbdir}/hmm/pfam/Pfam-A-"$Domain2".hmm
         fi
 
         Bname=$(basename {input})
@@ -80,12 +87,12 @@ rule hmmsearch:
                 To_scratch=false
             fi
         fi
+
         if [ "$To_scratch" = false ]; then
-            # local scratch not set or not enough space in local scratch
-            hmmsearch -T {Hmmsearch_score_min} --tblout {output} --cpu {threads} --noali -o /dev/null $Hmmdb {input} 2> {log} || {{ echo "See error details in {log}" | python {Scriptdir}/echo.py --level error; exit 1; }}
+            Inputseq={input}
         else
             # when To_scratch is true, Tmp and Bname should have been defined successfully
-            hmmsearch -T {Hmmsearch_score_min} --tblout {output} --cpu {threads} --noali -o /dev/null $Hmmdb $Tmp/$Bname 2> {log} || {{ echo "See error details in {log}" | python {Scriptdir}/echo.py --level error; exit 1; }}
+            hmmsearch -T {Hmmsearch_score_min} --tblout {output} --cpu {threads} --noali -o /dev/null $Hmmdb $Tmp/$Bname 2> {log} || {{ echo "See error details in {Wkdir}/{log}" | python {Scriptdir}/echo.py --level error; exit 1; }}
             rm -f $Tmp/$Bname && rmdir $Tmp
         fi
         """
@@ -108,13 +115,13 @@ rule merge_split_hmmtbl:
     output: 'iter-0/all.pdg.{domain}.hmmtbl',
     shell:
         """
-        cat {input} > {output}
+        printf "%s\n" {input} | xargs cat > {output}
         """
 
 localrules: split_faa_by_group
 checkpoint split_faa_by_group:
-    input: 'iter-0/{group}/all.pdg.faa'
-    output: directory('iter-0/{group}/all.pdg.faa.splitdir')
+    input: f'{Tmpdir}/{{group}}/all.pdg.faa'
+    output: directory(f'{Tmpdir}/{{group}}/all.pdg.faa.splitdir')
     conda: '{}/vs2.yaml'.format(Conda_yaml_dir)
     shell:
         """
@@ -125,6 +132,8 @@ checkpoint split_faa_by_group:
         Group_specific_hmmdb={Dbdir}/group/{wildcards.group}/customized.hmm
         Rbs_pdg_db={Dbdir}/group/{wildcards.group}/rbs-prodigal-train.db
         Bname=$(basename {input})
+
+        rm -f {Tmpdir}/{wildcards.group}/all.pdg.faa.splitdir/all.pdg.faa.*.split.*.splithmmtbl
 
         if [ {Provirus} != "True" ] && [ {Max_orf_per_seq} -ne -1 ]; then
             python {Scriptdir}/subsample-faa.py {Max_orf_per_seq} {input} > {input}.ss
@@ -169,7 +178,11 @@ rule hmmsearch_by_group:
                 Hmmdb={Dbdir}/hmm/viral/combined.hmm
             fi
         else
-            Hmmdb={Dbdir}/hmm/pfam/Pfam-A-{wildcards.domain}.hmm
+            Domain2=$Domain
+            if [ $Domain2 = "Pfamviruses" ]; then
+                Domain2=Viruses
+            fi
+            Hmmdb={Dbdir}/hmm/pfam/Pfam-A-"$Domain2".hmm
         fi
 
         if [ -s $Rbs_pdg_db ] || [ -s $Group_specific_hmmdb ]; then
@@ -188,12 +201,12 @@ rule hmmsearch_by_group:
                     To_scratch=false
                 fi
             fi
+
             if [ "$To_scratch" = false ]; then
-                # local scratch not set or not enough space in local scratch
-                hmmsearch -T {Hmmsearch_score_min} --tblout {output} --cpu {threads} --noali -o /dev/null $Hmmdb {input} 2> {log} || {{ echo "See error details in {log}" | python {Scriptdir}/echo.py --level error; exit 1; }}
+                Inputseq={input}
             else
                 # when To_scratch is true, Tmp and Bname should have been defined successfully
-                hmmsearch -T {Hmmsearch_score_min} --tblout {output} --cpu {threads} --noali -o /dev/null $Hmmdb $Tmp/$Bname 2> {log} || {{ echo "See error details in {log}" | python {Scriptdir}/echo.py --level error; exit 1; }}
+                hmmsearch -T {Hmmsearch_score_min} --tblout {output} --cpu {threads} --noali -o /dev/null $Hmmdb $Tmp/$Bname 2> {log} || {{ echo "See error details in {Wkdir}/{log}" | python {Scriptdir}/echo.py --level error; exit 1; }}
                 rm -f $Tmp/$Bname && rmdir $Tmp
             fi
         else
@@ -222,7 +235,7 @@ rule merge_split_hmmtbl_by_group_tmp:
         Group_specific_hmmdb={Dbdir}/group/{wildcards.group}/customized.hmm
         Rbs_pdg_db={Dbdir}/group/{wildcards.group}/rbs-prodigal-train.db
         if [ -s $Rbs_pdg_db ] || [ -s $Group_specific_hmmdb ]; then
-            cat {input} > {output}
+            printf "%s\n" {input} | xargs cat > {output}
         else
             touch {output}
         fi
@@ -245,48 +258,130 @@ rule merge_split_hmmtbl_by_group:
         fi
         """
         
-rule hmm_sort_to_best_hit_taxon:
-    input: 
-        arc = 'iter-0/all.pdg.Archaea.hmmtbl',
-        bac = 'iter-0/all.pdg.Bacteria.hmmtbl',
-        euk = 'iter-0/all.pdg.Eukaryota.hmmtbl',
-        mix = 'iter-0/all.pdg.Mixed.hmmtbl',
-        vir = 'iter-0/all.pdg.Viruses.hmmtbl',
-        faa = 'iter-0/all.pdg.faa',
-    output: 
-        tax = 'iter-0/all.pdg.hmm.tax',
-        ftr = 'iter-0/all.pdg.hmm.ftr'
-    log: 'log/iter-0/step2-extract-feature/extract-feature-from-hmmout-common.log'
-    conda: '{}/vs2.yaml'.format(Conda_yaml_dir)
-    shell:
-        """
-        python {Scriptdir}/extract-feature-from-hmmout.py {Hmmsearch_score_min} "{input.arc},{input.bac},{input.euk},{input.mix},{input.vir}" "arc,bac,euk,mixed,vir" > {output.tax} 2> {log} || {{ echo "See error details in {log}" | python {Scriptdir}/echo.py --level error; exit 1; }}
-        python {Scriptdir}/add-unaligned-to-hmm-featrues.py {input.faa} {output.tax} > {output.ftr}
-        """
+if Prep_for_dramv:
+    rule hmm_sort_to_best_hit_taxon:
+        input: 
+            arc = 'iter-0/all.pdg.Archaea.hmmtbl',
+            bac = 'iter-0/all.pdg.Bacteria.hmmtbl',
+            euk = 'iter-0/all.pdg.Eukaryota.hmmtbl',
+            mix = 'iter-0/all.pdg.Mixed.hmmtbl',
+            vir = 'iter-0/all.pdg.Viruses.hmmtbl',
+            pfamvir = 'iter-0/all.pdg.Pfamviruses.hmmtbl',
+            faa = 'iter-0/all.pdg.faa',
+        output: 
+            tax = 'iter-0/all.pdg.hmm.tax',
+            taxpfam = 'iter-0/all.pdg.hmm.taxpfam',
+            taxwhm = 'iter-0/all.pdg.hmm.taxwhm',
+            ftr = 'iter-0/all.pdg.hmm.ftr'
+        log: 'log/iter-0/step2-extract-feature/extract-feature-from-hmmout-common.log'
+        conda: '{}/vs2.yaml'.format(Conda_yaml_dir)
+        shell:
+            """
+            python {Scriptdir}/extract-feature-from-hmmout.py {Hmmsearch_score_min} "{input.arc},{input.bac},{input.euk},{input.mix},{input.vir}" "arc,bac,euk,mixed,vir" > {output.tax} 2> {log} || {{ echo "See error details in {Wkdir}/{log}" | python {Scriptdir}/echo.py --level error; exit 1; }}
+            python {Scriptdir}/add-unaligned-to-hmm-featrues.py {input.faa} {output.tax} > {output.ftr}
 
-rule hmm_sort_to_best_hit_taxon_by_group:
-    input: 
-        tax = 'iter-0/all.pdg.hmm.tax',
-        faa = 'iter-0/{group}/all.pdg.faa',
-        arc = 'iter-0/{group}/all.pdg.Archaea.hmmtbl',
-        bac = 'iter-0/{group}/all.pdg.Bacteria.hmmtbl',
-        euk = 'iter-0/{group}/all.pdg.Eukaryota.hmmtbl',
-        mix = 'iter-0/{group}/all.pdg.Mixed.hmmtbl',
-        vir = 'iter-0/{group}/all.pdg.Viruses.hmmtbl'
-    output: 
-        tax = 'iter-0/{group}/all.pdg.hmm.tax',
-    conda: '{}/vs2.yaml'.format(Conda_yaml_dir)
-    shell:
-        """
-        Log={Wkdir}/log/iter-0/step2-extract-feature/extract-feature-from-hmmout-{wildcards.group}.log
-        Group_specific_hmmdb={Dbdir}/group/{wildcards.group}/customized.hmm
-        Rbs_pdg_db={Dbdir}/group/{wildcards.group}/rbs-prodigal-train.db
-        if [ -s $Rbs_pdg_db ] || [ -s $Group_specific_hmmdb ]; then
-            python {Scriptdir}/extract-feature-from-hmmout.py {Hmmsearch_score_min} "{input.arc},{input.bac},{input.euk},{input.mix},{input.vir}" "arc,bac,euk,mixed,vir" > {output.tax} 2> $Log || {{ echo "See error details in $Log" | python {Scriptdir}/echo.py --level error; exit 1; }}
-        else
-            (cd iter-0/{wildcards.group} && ln -sf ../all.pdg.hmm.tax)
-        fi
-        """
+            # pfam only annotation
+            python {Scriptdir}/extract-feature-from-hmmout.py {Hmmsearch_score_min} "{input.arc},{input.bac},{input.euk},{input.mix},{input.pfamvir}" "arc,bac,euk,mixed,vir" > {output.tax}pfam 2>> {log} || {{ echo "See error details in {Wkdir}/{log}" | python {Scriptdir}/echo.py --level error; exit 1; }}
+            python {Scriptdir}/add-unaligned-to-hmm-featrues.py {input.faa} {output.tax}pfam > {output.ftr}pfam
+
+            # add hallmark info to .tax file for making affi-contigs.tab file
+            python {Scriptdir}/add-hallmark-to-taxfile.py {output.tax} {output.tax}whm
+            """
+else:
+    rule hmm_sort_to_best_hit_taxon:
+        input: 
+            arc = 'iter-0/all.pdg.Archaea.hmmtbl',
+            bac = 'iter-0/all.pdg.Bacteria.hmmtbl',
+            euk = 'iter-0/all.pdg.Eukaryota.hmmtbl',
+            mix = 'iter-0/all.pdg.Mixed.hmmtbl',
+            vir = 'iter-0/all.pdg.Viruses.hmmtbl',
+            faa = 'iter-0/all.pdg.faa',
+        output: 
+            tax = 'iter-0/all.pdg.hmm.tax',
+            taxwhm = 'iter-0/all.pdg.hmm.taxwhm',
+            ftr = 'iter-0/all.pdg.hmm.ftr'
+        log: 'log/iter-0/step2-extract-feature/extract-feature-from-hmmout-common.log'
+        conda: '{}/vs2.yaml'.format(Conda_yaml_dir)
+        shell:
+            """
+            python {Scriptdir}/extract-feature-from-hmmout.py {Hmmsearch_score_min} "{input.arc},{input.bac},{input.euk},{input.mix},{input.vir}" "arc,bac,euk,mixed,vir" > {output.tax} 2> {log} || {{ echo "See error details in {Wkdir}/{log}" | python {Scriptdir}/echo.py --level error; exit 1; }}
+            python {Scriptdir}/add-unaligned-to-hmm-featrues.py {input.faa} {output.tax} > {output.ftr}
+
+            # add hallmark info to .tax file for making affi-contigs.tab file
+            python {Scriptdir}/add-hallmark-to-taxfile.py {output.tax} {output.tax}whm
+            """
+
+if Prep_for_dramv:
+    rule hmm_sort_to_best_hit_taxon_by_group:
+        input: 
+            tax = 'iter-0/all.pdg.hmm.tax',
+            faa = 'iter-0/{group}/all.pdg.faa',
+            arc = 'iter-0/{group}/all.pdg.Archaea.hmmtbl',
+            bac = 'iter-0/{group}/all.pdg.Bacteria.hmmtbl',
+            euk = 'iter-0/{group}/all.pdg.Eukaryota.hmmtbl',
+            mix = 'iter-0/{group}/all.pdg.Mixed.hmmtbl',
+            vir = 'iter-0/{group}/all.pdg.Viruses.hmmtbl',
+            pfamvir = 'iter-0/{group}/all.pdg.Pfamviruses.hmmtbl',
+        output: 
+            tax = 'iter-0/{group}/all.pdg.hmm.tax',
+            taxpfam = 'iter-0/{group}/all.pdg.hmm.taxpfam',
+            taxwhm = 'iter-0/{group}/all.pdg.hmm.taxwhm',
+        conda: '{}/vs2.yaml'.format(Conda_yaml_dir)
+        shell:
+            """
+            Log={Wkdir}/log/iter-0/step2-extract-feature/extract-feature-from-hmmout-{wildcards.group}.log
+            Hallmark_list_f={Dbdir}/group/{wildcards.group}/hallmark-gene.list
+            Group_specific_hmmdb={Dbdir}/group/{wildcards.group}/customized.hmm
+            Rbs_pdg_db={Dbdir}/group/{wildcards.group}/rbs-prodigal-train.db
+            if [ -s $Rbs_pdg_db ] || [ -s $Group_specific_hmmdb ]; then
+                python {Scriptdir}/extract-feature-from-hmmout.py {Hmmsearch_score_min} "{input.arc},{input.bac},{input.euk},{input.mix},{input.vir}" "arc,bac,euk,mixed,vir" > {output.tax} 2> $Log || {{ echo "See error details in $Log" | python {Scriptdir}/echo.py --level error; exit 1; }}
+                # pfam only annotation
+                python {Scriptdir}/extract-feature-from-hmmout.py {Hmmsearch_score_min} "{input.arc},{input.bac},{input.euk},{input.mix},{input.pfamvir}" "arc,bac,euk,mixed,vir" > {output.tax}pfam 2>> $Log || {{ echo "See error details in $Log" | python {Scriptdir}/echo.py --level error; exit 1; }}
+            else
+                (cd iter-0/{wildcards.group} && ln -sf ../all.pdg.hmm.tax)
+                (cd iter-0/{wildcards.group} && ln -sf ../all.pdg.hmm.taxpfam)
+            fi
+
+            if [ -s $Hallmark_list_f ]; then
+                # add hallmark info to .tax file for making affi-contigs.tab file
+                python {Scriptdir}/add-hallmark-to-taxfile.py {output.tax} {output.tax}whm --hallmark $Hallmark_list_f 2>> $Log || {{ echo "See error details in $Log" | python {Scriptdir}/echo.py --level error; exit 1; }}
+            else
+                python {Scriptdir}/add-hallmark-to-taxfile.py {output.tax} {output.tax}whm 2>> $Log || {{ echo "See error details in $Log" | python {Scriptdir}/echo.py --level error; exit 1; }}
+            fi
+            """
+else:
+    rule hmm_sort_to_best_hit_taxon_by_group:
+        input: 
+            tax = 'iter-0/all.pdg.hmm.tax',
+            faa = 'iter-0/{group}/all.pdg.faa',
+            arc = 'iter-0/{group}/all.pdg.Archaea.hmmtbl',
+            bac = 'iter-0/{group}/all.pdg.Bacteria.hmmtbl',
+            euk = 'iter-0/{group}/all.pdg.Eukaryota.hmmtbl',
+            mix = 'iter-0/{group}/all.pdg.Mixed.hmmtbl',
+            vir = 'iter-0/{group}/all.pdg.Viruses.hmmtbl',
+        output: 
+            tax = 'iter-0/{group}/all.pdg.hmm.tax',
+            taxwhm = 'iter-0/{group}/all.pdg.hmm.taxwhm',
+        conda: '{}/vs2.yaml'.format(Conda_yaml_dir)
+        shell:
+            """
+            Log={Wkdir}/log/iter-0/step2-extract-feature/extract-feature-from-hmmout-{wildcards.group}.log
+            Hallmark_list_f={Dbdir}/group/{wildcards.group}/hallmark-gene.list
+            Group_specific_hmmdb={Dbdir}/group/{wildcards.group}/customized.hmm
+            Rbs_pdg_db={Dbdir}/group/{wildcards.group}/rbs-prodigal-train.db
+            if [ -s $Rbs_pdg_db ] || [ -s $Group_specific_hmmdb ]; then
+                python {Scriptdir}/extract-feature-from-hmmout.py {Hmmsearch_score_min} "{input.arc},{input.bac},{input.euk},{input.mix},{input.vir}" "arc,bac,euk,mixed,vir" > {output.tax} 2> $Log || {{ echo "See error details in $Log" | python {Scriptdir}/echo.py --level error; exit 1; }}
+            else
+                (cd iter-0/{wildcards.group} && ln -sf ../all.pdg.hmm.tax)
+            fi
+
+            if [ -s $Hallmark_list_f ]; then
+                # add hallmark info to .tax file for making affi-contigs.tab file
+                python {Scriptdir}/add-hallmark-to-taxfile.py {output.tax} {output.tax}whm --hallmark $Hallmark_list_f 2>> $Log || {{ echo "See error details in $Log" | python {Scriptdir}/echo.py --level error; exit 1; }}
+            else
+                python {Scriptdir}/add-hallmark-to-taxfile.py {output.tax} {output.tax}whm 2>> $Log || {{ echo "See error details in $Log" | python {Scriptdir}/echo.py --level error; exit 1; }}
+            fi
+            """
 
 localrules: hmm_features_by_group
 rule hmm_features_by_group:
@@ -305,11 +400,18 @@ rule hmm_features_by_group:
 
         if [ -s $Hallmark_list_f ]; then
             python {Scriptdir}/add-unaligned-to-hmm-featrues.py {input.faa} {input.tax} --hallmark $Hallmark_list_f > {output} 2> $Log || {{ echo "See error details in $Log" | python {Scriptdir}/echo.py --level error; exit 1; }}
+            if [ {Prep_for_dramv} = True ]; then
+                python {Scriptdir}/add-unaligned-to-hmm-featrues.py {input.faa} {input.tax}pfam --hallmark $Hallmark_list_f > {output}pfam 2> $Log || {{ echo "See error details in $Log" | python {Scriptdir}/echo.py --level error; exit 1; }}
+            fi
 
         elif [ -s $Rbs_pdg_db ] || [ -s $Group_specific_hmmdb ]; then
             python {Scriptdir}/add-unaligned-to-hmm-featrues.py {input.faa} {input.tax} > {output} 2> $Log || {{ echo "See error details in $Log" | python {Scriptdir}/echo.py --level error; exit 1; }} 
+            python {Scriptdir}/add-unaligned-to-hmm-featrues.py {input.faa} {input.tax}pfam > {output}pfam 2>> $Log || {{ echo "See error details in $Log" | python {Scriptdir}/echo.py --level error; exit 1; }} 
         else
             (cd iter-0/{wildcards.group} && ln -fs ../all.pdg.hmm.ftr)
+            if [ {Prep_for_dramv} = True ]; then
+                (cd iter-0/{wildcards.group} && ln -fs ../all.pdg.hmm.ftrpfam)
+            fi
         fi
         """
 

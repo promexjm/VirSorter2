@@ -52,12 +52,13 @@ def init_config_template(src_config_dir, user_config_dir, db_dir):
 
         logging.info(mes)
         template = user_template
+        logging.info('Using {template} as config template')
 
     yaml = YAML()
     with open(src_template_ori) as fp:
         config = yaml.load(fp)
         config['DBDIR'] = db_dir
-        logging.info(f'saving to {db_dir} as DBDIR to config file {template}')
+        logging.info(f'saving {db_dir} as DBDIR to config file {template}')
 
     with open(template, 'w') as fw:
         yaml.dump(config, fw)
@@ -71,9 +72,9 @@ def init_config_template(src_config_dir, user_config_dir, db_dir):
 # No make_sample_table function is needed for virsorter
 
 def make_config(db_dir, seqfile, config_f, include_groups, tmpdir,
-        min_score=0.5, min_length=0, provirus=True,
-        hallmark_required=False, hallmark_required_on_short=False,
-        viral_gene_required=False, threads=None, max_orf_per_seq=20):
+        min_score=0.5, min_length=0, provirus=True, hallmark_required=False,
+        hallmark_required_on_short=False, viral_gene_required=False,
+        prep_for_dramv=False, threads=None, max_orf_per_seq=20, label='',):
     '''
     read config params from template-config.yaml
     then update the some params provided by command line
@@ -90,10 +91,27 @@ def make_config(db_dir, seqfile, config_f, include_groups, tmpdir,
     try:
         with open(TEMPLATE) as fp:
             config = yaml.load(fp)
+            logging.info(f'Using {TEMPLATE} as config template')
+            
+        if TEMPLATE.startswith(USER_CONFIG_DIR):
+            src_template_ori = os.path.join(SRC_CONFIG_DIR, 
+                    'template-config-original.yaml')
+            with open(src_template_ori) as fp:
+                config_src = yaml.load(fp)
+                st = set(config_src) - set(config)
+                if len(st) != 0:
+                    config.update(dict((i, config_src[i]) for i in st))
+                    with open(TEMPLATE, 'w') as fw:
+                        yaml.dump(config, fw)
+                    logging.info(
+                            f'{TEMPLATE} as config template does not '
+                            'have all variables needed; '
+                            'updating with those in {src_template_ori}')
+
     except FileNotFoundError as e:
         if db_dir != None:
             mes = ('"template-config.yaml" has not been initialized; '
-                    'initialing..')
+                    'initializing..')
             logging.info(mes)
             config = init_config_template(SRC_CONFIG_DIR, 
                                              USER_CONFIG_DIR, db_dir)
@@ -101,6 +119,7 @@ def make_config(db_dir, seqfile, config_f, include_groups, tmpdir,
             mes = ('--db-dir must be provided since "template-config.yaml" '
                     'has not been initialized')
             logging.critical(mes)
+            sys.exit(1)
 
     if db_dir != None:
         config['DBDIR'] = db_dir
@@ -114,6 +133,8 @@ def make_config(db_dir, seqfile, config_f, include_groups, tmpdir,
     config['TMPDIR'] = tmpdir
     config['PROBA_CUTOFF'] = min_score
     config['MIN_LENGTH'] = min_length
+    config['PREP_FOR_DRAMV'] = prep_for_dramv
+    config['LABEL'] = label
 
     config['THREADS'] = multiprocessing.cpu_count() if not threads else threads
 

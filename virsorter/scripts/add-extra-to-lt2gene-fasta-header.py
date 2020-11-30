@@ -14,13 +14,8 @@ sys.path.append(pkg_dir)
 from virsorter.config import get_default_config, set_logger
 from virsorter.utils import (
         load_rbs_category, df_tax_per_config, parse_gff, 
-        extract_feature_tax
+        extract_feature_tax, TAX_FEATURE_LIST, FASTA_DESC_FORMAT_TEMPLATE
 )
-
-DEFAULT_CONFIG = get_default_config()
-TAX_FEATURE_LIST = DEFAULT_CONFIG['TAX_FEATURE_LIST']
-FASTA_DESC_FORMAT_TEMPLATE = DEFAULT_CONFIG['FASTA_DESC_FORMAT_TEMPLATE']
-
 
 def main():
     '''Add sequence length to table
@@ -71,12 +66,20 @@ def main():
 
     d_name2info = {}
     for gff_f, tax_f, group in zip(gff_fs, tax_fs, groups):
+        name_st = d_group2name.get(group, set())
         gen_gff = parse_gff(gff_f) 
-        seqname_lis = [l[0] for l in gen_gff]
-        seqname_ori_lis = [i.rsplit('||')[0] for i in seqname_lis]
+        seqname_lis = []
+        seqname_ori_lis = []
+        for l in gen_gff:
+            seqname = l[0]
+            seqname_ori = seqname.rsplit('||', 1)[0]
+            if not seqname_ori in name_st:
+                continue
+            seqname_lis.append(seqname)
+            seqname_ori_lis.append(seqname_ori)
+
         d_name2cnt=Counter(seqname_ori_lis)
 
-        name_st = d_group2name.get(group, set())
         for seqname_ori in name_st:
             total_gene_cnt = d_name2cnt[seqname_ori]
             ind = seqname_ori_lis.index(seqname_ori)

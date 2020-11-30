@@ -37,7 +37,7 @@ conda install -c bioconda virsorter=2
 The development version is most updated and recommended. To install the development version:
 
 ```bash
-conda create -n vs2 -c bioconda -c conda-forge python=3 scikit-learn=0.22.1 imbalanced-learn pandas seaborn hmmer prodigal screed ruamel.yaml snakemake=5.16.0 click
+conda create -n vs2 -c bioconda -c conda-forge "python>=3.6" scikit-learn=0.22.1 imbalanced-learn pandas seaborn hmmer prodigal screed ruamel.yaml "snakemake>=5.16,<=5.26" click
 conda activate vs2
 git clone https://github.com/jiarong/VirSorter2.git
 cd VirSorter2
@@ -66,7 +66,7 @@ To run viral sequence identification on a test dataset:
 # fetch testing data
 wget -O test.fa https://raw.githubusercontent.com/jiarong/VirSorter2/master/test/8seq.fa
 # run classification with 4 threads (-j) and test-out as output diretory (-w)
-virsorter run -w test.out -i test.fa -j 4
+virsorter run -w test.out -i test.fa -j 4 all
 ls test.out
 ```
 
@@ -81,7 +81,7 @@ More details of output can be found [here](#detailed-description-on-output-files
 ---
 **NOTE**
 
-Note that suffix `||full` and `||{i}index_partial` (`{i}` can be numbers starting from 0 to max number of viral fragments found in that contig) have been added to original sequence names to differentiate sub-sequences in case of multiple viral subsequences found in one contig.
+Note that suffix `||full` and `||{i}_partial` (`{i}` can be numbers starting from 0 to max number of viral fragments found in that contig) have been added to original sequence names to differentiate sub-sequences in case of multiple viral subsequences found in one contig.
 
 ---
 
@@ -89,14 +89,14 @@ Note that suffix `||full` and `||{i}index_partial` (`{i}` can be numbers startin
 
 ## choosing viral groups (`--include-groups`)
 
-VirSorter2 finds all viral groups currently included (ssDNAphage, NCLDV , RNA, ssDNA virus, and *lavidaviridae*) by default. You can use `--include-groups` to select only specific groups:
+VirSorter2 finds all viral groups currently included (ssDNAphage, NCLDV , RNA, ssDNA virus, and *lavidaviridae*) by default. You can use `--include-groups` to select only specific groups. For those only interested in phage:
 
 ```bash
 rm -rf test.out
-virsorter run -w test.out -i test.fa --include-groups "dsDNAphage,ssDNA" -j 4
+virsorter run -w test.out -i test.fa --include-groups "dsDNAphage,ssDNA" -j 4 all
 ```
 
-## re-run with different score cutoff (`--min-score`)
+## re-run with different score cutoff (`--min-score` and `--classify`)
 
 VirSorter2 takes one positional argument, `all` or `classify`. The default is `all`, which means running the whole pipeline, including 1) preprocessing, 2) annotation (feature extraction), and 3) classification. The main computational bottleneck is the annotation step, taking about 95% of CPU time. In case you just want to re-run with different score cutoff (--min-score), `classify` argument can skip the annotation steps, and only re-run classify step.
 
@@ -104,14 +104,19 @@ VirSorter2 takes one positional argument, `all` or `classify`. The default is `a
 virsorter run -w test.out -i test.fa --include-groups "dsDNAphage,ssDNA" -j 4 --min-score 0.8 classify
 ```
 
-## speed up a run (`--provirus-off`) 
+The above overwrites the previous final output files. If you want to keep previous results, you can use `--label` to add prefix to new final output files.
 
+```bash
+virsorter run -w test.out -i test.fa --include-groups "dsDNAphage,ssDNA" -j 4 --min-score 0.9 --label rerun classify
+```
+
+## speed up a run (`--provirus-off`) 
 
 In case you need to have some results quickly, there are two options: 1) turn off provirus step with `--provirus-off`; this reduces sensitivity on sequences that are only partially viral; 2) subsample ORFs from each sequence with `--max-orf-per-seq`; This option subsamples ORFs to a cutoff if a sequence has more ORFs than that. Note that this option is only availale when `--provirus-off` is used. 
 
 ```bash
 rm -rf test.out
-virsorter run -w test.out -i test.fa --provirus-off --max-orf-per-seq 20
+virsorter run -w test.out -i test.fa --provirus-off --max-orf-per-seq 20 all
 ```
 
 ## Other options
@@ -119,37 +124,49 @@ virsorter run -w test.out -i test.fa --provirus-off --max-orf-per-seq 20
 You can run `virsorter run -h` to see all options. VirSorter2 is a wrapper around [snakemake](https://snakemake.readthedocs.io/en/stable/), a great pipeline management tool designed for reproducibility, and running on computer clusters. All snakemake options still work with VirSorter2, and users can simply append those snakemake option to virsorter options (after `all` or `classify`). For example, the `--forceall` snakemake option can be used to re-run the pipeline.
 
 ```bash
-virsorter run -w test.out -i test.fa --provirus-off --max-orf-per-seq 20 --forceall
+virsorter run -w test.out -i test.fa --provirus-off --max-orf-per-seq 20 all --forceall
 ```
 
-When you re-run any VirSorter2 command, it will pick up at the step (rule in snakemake term) where it stopped last time. It will do nothing if it suceeded last time. The `--forceall` option can be used to enforce the re-run.
+When you re-run any VirSorter2 command, it will pick up at the step (rule in snakemake term) where it stopped last time. It will do nothing if it succeeded last time. The `--forceall` option can be used to enforce the re-run.
+
+## DRAMv compatibility
+
+[DRAMv](https://github.com/shafferm/DRAM) is a tool for annotating viral contigs identified by VirSorter. It needs two input files from VirSorter: 1) viral contigs, 2) `affi-contigs.tab` that have info on viral/nonviral and hallmark genes along contigs. In VirSorter2, these files can be generated by `--prep-for-dramv` flag.
+
+```bash
+rm -rf test.out
+virsorter run --prep-for-dramv -w test.out -i test.fa -j 4 all
+ls test.out/for-dramv
+```
 
 # Detailed description on output files
 
 - final-viral-combined.fa
 
   > identified viral sequences, including two types:
-
   > - full sequences identified as viral (added with suffix `||full`);
+  > - partial sequences identified as viral (added with suffix `||{i}_partial`); here `{i}` can be numbers starting from 0 to max number of viral fragments found in that contig;
+  > - short (less then two genes) sequences with hallmark genes identified as viral (added with suffix `||lt2gene`);
 
-  > - partial sequences identified as viral (added with suffix `||{i}index_partial`); here `{i}` can be numbers starting from 0 to max number of viral fragments found in that contig;
+ 
+- final-viral-score.tsv
 
-  > headers of sequences looks likes:
+  > This table can be used for further screening of results. It includes the following columns:
+  >   - seqname
+  >   - score of each viral sequences across groups (multiple columns)
+  >   - max score across groups
+  >   - max score group
+  >   - contig length 
+  >   - hallmark gene count
+  >   - viral gene %
+  >   - nonviral gene %
 
-  > >Caudo-circular||full  shape:circular||start:327||end:32076||group:dsDNAphage||score:0.993||hallmark:4
-
-  > The description part includes `shape`, `start` and `end` position on contig of a viral sequence, best classifier (`group`), `score` from the classfier (ranging from 0 to 1, higher means more like to be viral), number of `hallmark` genes. 
-  
 ---
 **NOTE**
 
 Note that classifiers of different viral groups are not exclusive from each other, and may have overlap in their target viral sequence space, which means this info should not be used as reliable classification. We limit the purpose of VirSorter2 to viral idenfication only.
 
 ---
-
-- final-viral-score.tsv
-
-  > score of each viral sequences across groups
 
 - final-viral-boundary.tsv
 
@@ -238,9 +255,10 @@ gzip -d nonviral.ftr.gz
 virsorter train-model --viral-ftrfile autolyki-feature.out/all.pdg.ftr --nonviral-ftrfile nonviral.ftr --balanced --jobs 4 -w autolyki-model.out
 ```
 
-In `autolyki-model.out`, `feature-importances.tsv` shows the importance of each feature used. `model` is the classifier model we need. Then put the `model` and `hallmark-gene.list` in database directory as the existing viral groups.
+In `autolyki-model.out`, `feature-importances.tsv` shows the importance of each feature used. `model` is the classifier model we need. Then put the `model` and `hallmark-gene.list` in database directory as the existing viral groups. Note that **only letters** are allowed for group directory under `db/group/`.
 
 ```bash
+### attention: only letters (both upper and lower case) are allowed in group names
 mkdir db/group/autolykiviridae
 cp autolyki-model.out/model db/group/autolykiviridae
 cp hallmark-gene.list db/group/autolykiviridae/

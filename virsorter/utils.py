@@ -14,9 +14,40 @@ sys.path.append(pkg_dir)
 from virsorter.config import get_default_config, set_logger
 DEFAULT_CONFIG = get_default_config()
 GENE_OVERLAP_MIN = DEFAULT_CONFIG['GENE_OVERLAP_MIN']
-TAXON_LIST = DEFAULT_CONFIG['TAXON_LIST']
 TOTAL_FEATURE_LIST = DEFAULT_CONFIG['TOTAL_FEATURE_LIST']
 SELECT_FEATURE_LIST = DEFAULT_CONFIG['SELECT_FEATURE_LIST']
+
+# gene row items for AFFI_CONTIGS.tab
+AFFI_CONTIG_COLS = [ 
+    'gene_name', 'start', 'end', 'seqlen', 'strand', 'hmm', 
+    'bits', 'eval', 'cat', 'pfamhmm', 'pfambits', 'pfameval'
+]
+
+GFF_PARSER_COLS = ['seqname', 'seqlen', 'orf_index', 'start', 'end', 
+                    'strand', 'partial', 'start_type', 'gc_cont', 
+                    'rbs_motif']
+GENE_ANNO_COLS = ['hmm', 'bits', 'pfamhmm', 'pfambits', 'tax', 
+                    'is_hallmark', 'cat', 'group']
+TAXFILE_COLS = ['orfname', 'tax', 'hmm', 'score']
+TAX_FEATURE_LIST = ['arc', 'bac', 'euk', 'vir', 'mix', 'unaligned', 
+                        'hallmark']
+FASTA_DESC_FORMAT_TEMPLATE = (
+    'shape:{shape}||start:{start}||end:{end}||start_ind:{start_ind}||'
+    'end_ind:{end_ind}||viral:{viral:.1f}||cellular:{cellular:.1f}||'
+    'score:{score:.3f}||group:{group}||hallmark:{hallmark:.0f}'
+)
+
+# tax feature extration
+TAXON_LIST = ['arc', 'bac', 'euk', 'vir', 'mixed']
+
+# gff featuure list
+GFF_FEATURE_LIST = [
+    'contig_size', 'gene_size', 'gene_overlap_perc', 'density', 
+    'strand_switch_perc', 'atg_perc', 'gtg_perc', 'ttg_perc', 'gc_mean', 
+    'gc_sd', 'rbs_DoubleA', 'rbs_DoubleT', 'rbs_NoA', 'rbs_None', 
+    'rbs_OnlyA', 'rbs_OnlyT', 'rbs_Other', 'rbs_Other_GA', 
+    'rbs_SD_Bacteroidetes', 'rbs_SD_Canonical', 'rbs_TATATA_3-6', 
+]
 
 def load_rbs_category(f):
     '''load into rbs site and rbs catetory mapping into a dict
@@ -32,7 +63,7 @@ def load_rbs_category(f):
 
     return d
 
-def df_tax_per_config(tax_f, seqname):
+def df_tax_per_config(tax_f, seqname, taxwhm=False):
     '''parse .tax file
     
     parse .tax file (tab separated with three columns, 1) orf seqname, 2) gene name of best hit hmm, 3) bit score cutoff); and then select rows with seqname and turn pandas DataFrame
@@ -47,9 +78,10 @@ def df_tax_per_config(tax_f, seqname):
 
     fw.seek(0)
     # pd.read_csv can read Bytes directly
-    df_tax_all = pd.read_csv(fw, sep='\t', header=None, 
-        names=['orfname', 'tax', 'hmm', 'score'])
-    #print(df_tax_all.head())
+    cols = TAXFILE_COLS
+    if taxwhm:
+        cols = cols + ['hallmark']
+    df_tax_all = pd.read_csv(fw, sep='\t', header=None, names=cols)
     if len(df_tax_all) != 0:
         seqnames, indice = zip(
             *[orfname.rsplit('_', 1) for orfname in df_tax_all['orfname']]

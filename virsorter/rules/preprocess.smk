@@ -67,6 +67,9 @@ checkpoint split_contig_file:
         Log={Wkdir}/log/iter-0/step1-pp/split-contig-file-{wildcards.shape}-common.log
         Total=$(grep -v '^>' {input} | wc -c)
         Bname=$(basename {input})
+        # clean up output from following steps to avoid bug with checkpoint
+        rm -f {Tmpdir}/pp-{wildcards.shape}.fna.splitdir/pp-{wildcards.shape}.fna.*.split.pdg.splitgff
+        rm -f {Tmpdir}/pp-{wildcards.shape}.fna.splitdir/pp-{wildcards.shape}.fna.*.split.pdg.splitfaa
         if [ $Total -gt {Contig_bp_per_split} ]; then
             python {Scriptdir}/split-seqfile-even-bp-per-file.py {input} {output} {Contig_bp_per_split} &> $Log || {{ echo "See error details in $Log" | python {Scriptdir}/echo.py --level error; exit 1; }}
         else
@@ -85,7 +88,7 @@ rule gene_call:
     conda: '{}/vs2.yaml'.format(Conda_yaml_dir)
     shell:
         """
-        prodigal -p meta -i {input} -a {output.faa} -o {output.gff} -f gff  &> {log} || {{ echo "See error details in {log}" | python {Scriptdir}/echo.py --level error; exit 1; }}
+        prodigal -p meta -i {input} -a {output.faa} -o {output.gff} -f gff  &> {log} || {{ echo "See error details in {Wkdir}/{log}" | python {Scriptdir}/echo.py --level error; exit 1; }}
         """
 
 def merge_split_faa_gff_input_agg(wildcards):
@@ -116,8 +119,8 @@ rule merge_split_faa_gff:
     conda: '{}/vs2.yaml'.format(Conda_yaml_dir)
     shell:
         """
-        cat {input.gff} > {output.gff}
-        cat {input.faa} > {output.faa}
+        printf "%s\n" {input.gff} | xargs cat > {output.gff}
+        printf "%s\n" {input.faa} | xargs cat > {output.faa}
         """
 
 localrules: split_contig_file_by_group
@@ -130,6 +133,10 @@ checkpoint split_contig_file_by_group:
         Log={Wkdir}/log/iter-0/step1-pp/split-contig-file-{wildcards.shape}-{wildcards.group}.log
         Bname=$(basename {input})
         Rbs_pdg_db={Dbdir}/group/{wildcards.group}/rbs-prodigal-train.db
+
+        rm -f {Tmpdir}/{wildcards.group}/pp-{wildcards.shape}.fna.splitdir/pp-{wildcards.shape}.fna.*.split.pdg.splitgff
+        rm -f {Tmpdir}/{wildcards.group}/pp-{wildcards.shape}.fna.splitdir/pp-{wildcards.shape}.fna.*.split.pdg.splitfaa
+
         if [ -s $Rbs_pdg_db ]; then
             Total=$(grep -v '^>' {input} | wc -c)
             if [ $Total -gt {Contig_bp_per_split} ]; then
@@ -198,8 +205,8 @@ rule merge_split_faa_gff_by_group:
         """
         Rbs_pdg_db={Dbdir}/group/{wildcards.group}/rbs-prodigal-train.db
         if [ -s $Rbs_pdg_db ]; then
-            cat {input.gff} > {output.gff}
-            cat {input.faa} > {output.faa}
+            printf "%s\n" {input.gff} | xargs cat > {output.gff}
+            printf "%s\n" {input.faa} | xargs cat > {output.faa}
         else
             (cd iter-0/{wildcards.group} && ln -s ../pp-{wildcards.shape}.gff && ln -s ../pp-{wildcards.shape}.faa)
         fi
@@ -216,7 +223,7 @@ rule remove_partial_gene:
     conda: '{}/vs2.yaml'.format(Conda_yaml_dir)
     shell:
         """
-        Log=log/iter-0/step1-pp/{wildcards.shape}-remove-partial-gene-common.log
+        Log={Wkdir}/log/iter-0/step1-pp/{wildcards.shape}-remove-partial-gene-common.log
         if [ {wildcards.shape} = "circular" ]; then
             python {Scriptdir}/circular-remove-partial-gene.py {input.gff} {output.gff} &> $Log || {{ echo "See error detail in $Log" | python {Scriptdir}/echo.py --level error; exit 1; }}
             python {Scriptdir}/filter-seqs-by-gff.py {output.gff} {input.faa} {output.faa}

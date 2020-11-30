@@ -16,8 +16,10 @@ set_logger()
 
 def log_exception(msg):
     logging.critical(msg)
-    logging.info("Documentation is available at: https://github.com/jiarong/VirSorter2")
-    logging.info("Issues can be raised at: https://github.com/jiarong/VirSorter2/issues")
+    logging.info('Documentation is available at: '
+                    'https://github.com/jiarong/VirSorter2')
+    logging.info('Issues can be raised at: '
+                    'https://github.com/jiarong/VirSorter2/issues')
     sys.exit(1)
 
 @click.group(context_settings=dict(help_option_names=["-h", "--help"]))
@@ -27,8 +29,6 @@ def cli(obj):
     """
     virsorter - workflow for identifying viral sequences
     """
-
-#cli.command('train') # work on this later
 
 def get_snakefile(f="Snakefile"):
     sf = os.path.join(os.path.dirname(os.path.abspath(__file__)), f)
@@ -66,14 +66,24 @@ def get_snakefile(f="Snakefile"):
     '--seqfile',
     required=True,
     type=click.Path(resolve_path=True),
-    help='sequence file in fa or fq format (could be compressed by gzip or bz2)'
+    help=('sequence file in fa or fq format (could be compressed '
+            'by gzip or bz2)')
+)
+@click.option(
+    '-l',
+    '--label',
+    default='',
+    help=('add label as prefix to output files; this is useful when re-running '
+            'classify with different filtering options'),
 )
 @click.option(
     '--include-groups',
     default='dsDNAphage,NCLDV,RNA,ssDNA,lavidaviridae',
     type=str,
     show_default=True,
-    help='classifiers of viral groups to included (comma separated and no space in between)'
+    help=('classifiers of viral groups to included '
+        '(comma separated and no space in between); available options are: '
+        'dsDNAphage,NCLDV,RNA,ssDNA,lavidaviridae'),
 )
 @click.option(
     '-j',
@@ -102,35 +112,54 @@ def get_snakefile(f="Snakefile"):
     default=False,
     is_flag=True,
     show_default=True,
-    help='require hallmark gene on short seqs (length cutoff as "short" were set by "MIN_SIZE_ALLOWED_WO_HALLMARK_GENE" in template-config.yaml file, default 3kbp); this can reduce false positives at reasonable cost of sensitivity',
+    help=('require hallmark gene on short seqs (length cutoff '
+            'as "short" were set by "MIN_SIZE_ALLOWED_WO_HALLMARK_GENE" in '
+            'template-config.yaml file, default 3kbp); this can reduce '
+            'false positives at reasonable cost of sensitivity'),
 )
 @click.option(
     '--viral-gene-required',
     default=False,
     is_flag=True,
     show_default=True,
-    help='requires viral genes annotated, removing putative viral seqs with no genes annotated; this can reduce false positives at reasonable cost of sensitivity',
+    help=('requires viral genes annotated, removing putative viral seqs '
+            'with no genes annotated; this can reduce false positives at '
+            'reasonable cost of sensitivity'),
 )
 @click.option(
     '--provirus-off',
     default=False,
     is_flag=True,
     show_default=True,
-    help='To turn off extracting provirus after classifying full contig seqs; Togetehr with lower --max-orf-per-seq, can speed up a run significantly',
+    help=('To turn off extracting provirus after classifying full contigs; '
+            'Togetehr with lower --max-orf-per-seq, can speed up a run '
+            'significantly'),
 )
 @click.option(
     '--max-orf-per-seq',
-    default=20,
+    default=-1,
     type=int,
     show_default=True,
-    help='Max # of orf used for computing taxonomic features; if # of orf in a seq exceeds the max limit, it is sub-sampled to this # to reduce computation; to turn off this, set it to -1; this option must be used together with --provirus-off option'
+    help=('Max # of orf used for computing taxonomic feature; this option '
+            'can only be used in --provirus-off mode; if # of orf in a seq '
+            'exceeds the max limit, it is sub-sampled to this # '
+            'to reduce computation')
 )
 @click.option(
     '--min-length',
     default=0,
     type=int,
     show_default=True,
-    help='minimal seq length required; all seqs shorter than this will be removed',
+    help=('minimal seq length required; all seqs shorter than this will '
+            'be removed'),
+)
+@click.option(
+    '--prep-for-dramv',
+    default=False,
+    is_flag=True,
+    show_default=True,
+    help=('To turn on generating viral seqfile and viral-affi-contigs.tab '
+            'for DRAMv'),
 )
 @click.option(
     '--tmpdir',
@@ -162,7 +191,10 @@ def get_snakefile(f="Snakefile"):
     is_flag=True,
     default=False,
     show_default=True,
-    help='Stop using the conda envs (vs2.yaml) that come with this package and use what are installed in current system; Only useful when you want to install dependencies on your own with your own prefer versions',
+    help=('Stop using the conda envs (vs2.yaml) that come with this '
+            'package and use what are installed in current system; '
+            'Only useful when you want to install dependencies on your own '
+            'with your own prefer versions'),
 )
 @click.option(
     '--rm-tmpdir',
@@ -179,8 +211,8 @@ def get_snakefile(f="Snakefile"):
 def run_workflow(workflow, working_dir, db_dir, seqfile, include_groups,
         jobs,  min_score, hallmark_required, hallmark_required_on_short,
         viral_gene_required, provirus_off, max_orf_per_seq, min_length,
-        tmpdir, rm_tmpdir, verbose, profile, dryrun, use_conda_off,
-        snakemake_args):
+        prep_for_dramv, tmpdir, rm_tmpdir, verbose, profile, dryrun,
+        use_conda_off, snakemake_args, label):
     ''' Runs the virsorter main function to classify viral sequences
 
     This includes 3 steps: 1) preprocess, 2) feature extraction, and 3)
@@ -211,12 +243,42 @@ def run_workflow(workflow, working_dir, db_dir, seqfile, include_groups,
 
     if provirus_off:
         provirus = False
+        if max_orf_per_seq != -1 and prep_for_dramv:
+            mes = ('--max-orf-per-seq CAN NOT be used with '
+                    '--prep-for-dramv; '
+                    'outputs with ORFs subsampled are NOT '
+                    'compatible with DRAMv')
     else:
         provirus = True
         max_orf_per_seq = -1
 
     if workflow == 'classify':
-        target_f = '{working_dir}/{tmpdir}/all-fullseq-proba.tsv'.format(
+        if not os.path.exists(config_f):
+            mes = 'No config.yaml dectected from previous run'
+            logging.critical(mes)
+            sys.exit(1)
+
+        config = load_configfile(config_f)
+        min_length_prev = config['MIN_LENGTH']
+        if min_length != min_length_prev:
+            mes = (
+                '--min-length has changed from '
+                f'{min_length_prev} to {min_length}; '
+                'but --min-length has not effect on classify step; '
+                'The whole pipeline has to be rerun if --min-length changes'
+            )
+            logging.critical(mes)
+            sys.exit(1)
+
+        if provirus != config['PROVIRUS']:
+            mes = (
+                '--provirus-off setting change found; '
+                'The whole pipeline has to be rerun if --provirus-off changes'
+            )
+            logging.critical(mes)
+            sys.exit(1)
+
+        target_f = '{working_dir}/{tmpdir}/reclassify.trigger'.format(
                 working_dir=working_dir,
                 tmpdir=tmpdir,
         )
@@ -224,8 +286,10 @@ def run_workflow(workflow, working_dir, db_dir, seqfile, include_groups,
             subprocess.run(['touch', target_f], check=True)
         except subprocess.CalledProcessError as e:
             # removes the traceback
-            logging.critical(e)
+            #logging.critical(e)
             sys.exit(1)
+
+        os.rename(config_f, os.path.join(working_dir,'config.yaml.bak'))
 
     make_config(
             db_dir=db_dir, seqfile=seqfile, include_groups=include_groups,
@@ -233,8 +297,10 @@ def run_workflow(workflow, working_dir, db_dir, seqfile, include_groups,
             hallmark_required=hallmark_required,
             hallmark_required_on_short=hallmark_required_on_short,
             viral_gene_required=viral_gene_required,
+            prep_for_dramv=prep_for_dramv,
             max_orf_per_seq=max_orf_per_seq, 
-            tmpdir=tmpdir, min_length=min_length, min_score=min_score,
+            tmpdir=tmpdir, min_length=min_length, min_score=min_score, 
+            label=label,
     )
     config = load_configfile(config_f)
 
@@ -260,14 +326,16 @@ def run_workflow(workflow, working_dir, db_dir, seqfile, include_groups,
         verbose='' if verbose else '--quiet',
         args=' '.join(snakemake_args),
         target_rule='-R {}'.format(workflow) if workflow!='all' else workflow,
-        conda_prefix='' if use_conda_off else '--conda-prefix {}'.format(os.path.join(db_dir,'conda_envs'))
+        conda_prefix='' if use_conda_off else '--conda-prefix {}'.format(
+            os.path.join(db_dir,'conda_envs')
+        )
     )
     logging.info('Executing: %s' % cmd)
     try:
         subprocess.run(cmd, check=True, shell=True)
     except subprocess.CalledProcessError as e:
         # removes the traceback
-        logging.critical(e)
+        #logging.critical(e)
         sys.exit(1)
 
     if rm_tmpdir:
@@ -294,8 +362,16 @@ def run_workflow(workflow, working_dir, db_dir, seqfile, include_groups,
     show_default=True,
     help='number of simultaneous downloads',
 )
+@click.option(
+    '-s',
+    '--skip-deps-install',
+    is_flag=True,
+    show_default=True,
+    help=('skip dependency installation (if you want to install on your '
+            'own as in development version)'),
+)
 @click.argument('snakemake_args', nargs=-1, type=click.UNPROCESSED)
-def run_setup(db_dir,jobs, snakemake_args):
+def run_setup(db_dir,jobs, skip_deps_install, snakemake_args):
     '''Setup databases and install dependencies.
     
     Executes a snakemake workflow to download reference database files
@@ -304,6 +380,7 @@ def run_setup(db_dir,jobs, snakemake_args):
     cmd = (
         'snakemake --snakefile {snakefile} '
         '--directory {db_dir} --quiet '
+        '--config Skip_deps_install={skip_deps_install} '
         '--jobs {jobs} --rerun-incomplete --latency-wait 600 '
         '--nolock  --use-conda --conda-prefix {conda_prefix} '
         '{args}'
@@ -311,41 +388,38 @@ def run_setup(db_dir,jobs, snakemake_args):
     cmd_str = cmd.format(
         snakefile=get_snakefile('rules/setup.smk'),
         db_dir=db_dir,
+        skip_deps_install=skip_deps_install,
         jobs=jobs,
         conda_prefix=os.path.join(db_dir,'conda_envs'),
         args=' '.join(snakemake_args),
     )
 
-    logging.info('Setting up VirSorter2 database; this might take ~10 mins and only needs to be done once.')
+    logging.info('Setting up VirSorter2 database; this might take ~10 mins '
+                    'and only needs to be done once.')
     #logging.info('Executing: %s' % cmd_str)
+    # try first with zenodo
     try:
-        subprocess.run(cmd_str, check=True, shell=True,
-                stdout=subprocess.PIPE)
+        subprocess.run(
+                cmd_str, check=True, shell=True,
+                #stderr=subprocess.PIPE, 
+                #stdout=subprocess.PIPE,
+        )
     except subprocess.CalledProcessError as e:
-        out_str = e.stdout
-        if isinstance(out_str, bytes):
-            out_str = out_str.decode('utf-8')
-        if 'server not responsive' in out_str:
-            mes = ('Setting up VirSorter2 database failed due to server '
-                    'not responding or bad internet connection; '
-                    'retrying..; please be patient.')
-            logging.info(mes)
-            try: 
-                cmd_str = cmd.format(
-                    snakefile=get_snakefile('rules/setup-retry.smk'),
-                    db_dir=db_dir,
-                    jobs=jobs,
-                    conda_prefix=os.path.join(db_dir,'conda_envs'),
-                    args=' '.join(snakemake_args),
-                )
-                subprocess.run(cmd_str, check=True, shell=True)
-            except subprocess.CalledProcessError as e:
-                # remove the traceback
-                #logging.critical(e)
-                sys.exit(1)
-
-        else:
-            # errors other than server not responsive
+        logging.info('First attempt failed; trying the second time.')
+        # try again with osf
+        try: 
+            cmd_str = cmd.format(
+                snakefile=get_snakefile('rules/setup-retry.smk'),
+                db_dir=db_dir,
+                skip_deps_install=skip_deps_install,
+                jobs=jobs,
+                conda_prefix=os.path.join(db_dir,'conda_envs'),
+                args=' '.join(snakemake_args),
+            )
+            subprocess.run(cmd_str, check=True, shell=True)
+        except subprocess.CalledProcessError as e:
+            # remove the traceback
+            logging.critical(e)
             sys.exit(1)
 
 # train feature
@@ -362,24 +436,30 @@ def run_setup(db_dir,jobs, snakemake_args):
 )
 @click.option(
     '--seqfile',
-    help='genome sequence file for training; for file pattern globbing, put quotes around the pattern, eg. "fasta-dir/*.fa"',
+    help=('genome sequence file for training; for file pattern globbing, '
+            'put quotes around the pattern, eg. "fasta-dir/*.fa"'),
     type=str,
     required=True,
     multiple=True,
 )
 @click.option(
     '--hmm',
-    help='customized viral HMMs for training; default to the one used in VirSorter2',
+    help=('customized viral HMMs for training; default to the one used in '
+            'VirSorter2'),
     type=click.Path(resolve_path=True),
 )
 @click.option(
     '--hallmark',
-    help='hallmark gene hmm list from -hmm for training (a tab separated file with three columns: 1. hmm name 2. gene name of hmm 3. hmm bit score cutoff); default to the one used for dsDNAphage in VirSorter2',
     type=click.Path(resolve_path=True),
+    help=('hallmark gene hmm list from -hmm for training (a tab separated '
+            'file with three columns: 1. hmm name, 2. gene name of hmm, '
+            '3. hmm bit score cutoff); default to the one used for '
+            'dsDNAphage in VirSorter2'),
 )
 @click.option(
     '--prodigal-train',
-    help='customized training db from prodigal; default to the one used in prodigal --meta mode',
+    help=('customized training db from prodigal; default to the one used '
+            'in prodigal --meta mode'),
     type=click.Path(resolve_path=True),
 )
 @click.option(
@@ -409,24 +489,32 @@ def run_setup(db_dir,jobs, snakemake_args):
     default=20,
     type=int,
     show_default=True,
-    help='Max # of orf used for computing taxonomic features; if # of orf in a seq exceeds the max limit, it is sub-sampled to this # to reduce computation; to turn off this, set it to -1'
+    help=('Max # of orf used for computing taxonomic features; if # of orf '
+            'in a seq exceeds the max limit, it is sub-sampled to this # '
+            'to reduce computation; to turn off this, set it to -1'),
 )
 @click.option(
     '--genome-as-bin',
     default=False,
     is_flag=True,
     show_default=True,
-    help='if applied, each file (genome bin) is a genome in --seqfile, else each sequence is a genome',
+    help=('if applied, each file (genome bin) is a genome in --seqfile, '
+            'else each sequence is a genome'),
 )
 @click.option(
     '--use-conda-off',
     is_flag=True,
     default=False,
     show_default=True,
-    help='Stop using the conda envs (vs2.yaml) that come with this package and use what are installed in current system; Only useful when you want to install dependencies on your own with your own prefer versions',
+    help=('Stop using the conda envs (vs2.yaml) that come with this package '
+            'and use what are installed in current system; Only useful when '
+            'you want to install dependencies on your own with your own '
+            'preferred versions'),
 )
 @click.argument('snakemake_args', nargs=-1, type=click.UNPROCESSED)
-def train_feature(working_dir, seqfile, hmm, hallmark, prodigal_train, frags_per_genome, min_length, max_orf_per_seq, genome_as_bin, jobs, use_conda_off, snakemake_args):
+def train_feature(working_dir, seqfile, hmm, hallmark, prodigal_train, 
+                    frags_per_genome, min_length, max_orf_per_seq, 
+                    genome_as_bin, jobs, use_conda_off, snakemake_args):
     '''Training features for customized classifier.
     
     Executes a snakemake workflow to do the following:
@@ -492,8 +580,11 @@ def train_feature(working_dir, seqfile, hmm, hallmark, prodigal_train, frags_per
         frags_per_genome=frags_per_genome, 
         jobs=jobs,
         use_conda_off='' if use_conda_off else '--use-conda',
-        conda_prefix='' if use_conda_off else '--conda-prefix {}'.format(os.path.join(DEFAULT_CONFIG['DBDIR'],'conda_envs')),
-        add_args='' if snakemake_args and snakemake_args[0].startswith('-') else '--',
+        conda_prefix='' if use_conda_off else '--conda-prefix {}'.format(
+            os.path.join(DEFAULT_CONFIG['DBDIR'],'conda_envs')
+        ),
+        add_args=('' if snakemake_args and snakemake_args[0].startswith('-') 
+                    else '--'),
         args=' '.join(snakemake_args),
     )
     logging.info('Executing: %s' % cmd)
@@ -501,7 +592,7 @@ def train_feature(working_dir, seqfile, hmm, hallmark, prodigal_train, frags_per
         subprocess.run(cmd, check=True, shell=True)
     except subprocess.CalledProcessError as e:
         # removes the traceback
-        logging.critical(e)
+        #logging.critical(e)
         exit(1)
 
 
@@ -550,10 +641,14 @@ def train_feature(working_dir, seqfile, hmm, hallmark, prodigal_train, frags_per
     is_flag=True,
     default=False,
     show_default=True,
-    help='Stop using the conda envs (vs2.yaml) that come with this package and use what are installed in current system; Only useful when you want to install dependencies on your own with your own prefer versions',
+    help=('Stop using the conda envs (vs2.yaml) that come with this package '
+            'and use what are installed in current system; Only useful when '
+            'you want to install dependencies on your own with your own '
+            'prefer versions'),
 )
 @click.argument('snakemake_args', nargs=-1, type=click.UNPROCESSED)
-def train_model(working_dir, viral_ftrfile, nonviral_ftrfile, balanced, jobs, use_conda_off, snakemake_args):
+def train_model(working_dir, viral_ftrfile, nonviral_ftrfile, balanced, 
+                jobs, use_conda_off, snakemake_args):
     '''Training customized classifier model.
     '''
 
@@ -580,8 +675,11 @@ def train_model(working_dir, viral_ftrfile, nonviral_ftrfile, balanced, jobs, us
         balanced=balanced,
         jobs=jobs,
         use_conda_off='' if use_conda_off else '--use-conda',
-        conda_prefix='' if use_conda_off else '--conda-prefix {}'.format(os.path.join(DEFAULT_CONFIG['DBDIR'],'conda_envs')),
-        add_args='' if snakemake_args and snakemake_args[0].startswith('-') else '--',
+        conda_prefix='' if use_conda_off else '--conda-prefix {}'.format(
+            os.path.join(DEFAULT_CONFIG['DBDIR'],'conda_envs')
+        ),
+        add_args=('' if snakemake_args and snakemake_args[0].startswith('-') 
+                    else '--'),
         args=' '.join(snakemake_args),
     )
     logging.info('Executing: %s' % cmd)
@@ -589,7 +687,7 @@ def train_model(working_dir, viral_ftrfile, nonviral_ftrfile, balanced, jobs, us
         subprocess.run(cmd, check=True, shell=True)
     except subprocess.CalledProcessError as e:
         # removes the traceback
-        logging.critical(e)
+        #logging.critical(e)
         exit(1)
 
 
@@ -597,7 +695,7 @@ def train_model(working_dir, viral_ftrfile, nonviral_ftrfile, balanced, jobs, us
 @cli.command(
     'config',
     context_settings=dict(ignore_unknown_options=True),
-    no_args_is_help=True,
+    #no_args_is_help=True,
     short_help='subcommand for configuration management',
 )
 @click.option(
@@ -623,16 +721,19 @@ def train_model(working_dir, viral_ftrfile, nonviral_ftrfile, balanced, jobs, us
 )
 @click.option(
     '--db-dir',
-    type=click.Path(resolve_path=True),
+    type=click.Path(),
     help='directory for databases; required for --init-source',
 )
 @click.option(
     '--set',
-    help='set KEY to VAL with the format: KEY=VAL; for nested dict in YAML use KEY1.KEY2=VAL (e.g. virsorter config --set GROUP_INFO.RNA.MIN_GENOME_SIZE=2000)',
+    help=('set KEY to VAL with the format: KEY=VAL; for nested dict in YAML '
+            'use KEY1.KEY2=VAL (e.g. virsorter config --set '
+            'GROUP_INFO.RNA.MIN_GENOME_SIZE=2000)'),
 )
 @click.option(
     '--get',
-    help='the value of a KEY (e.g. virsorter config --get GROUP_INFO.RNA.MIN_GENOME_SIZE',
+    help=('the value of a KEY (e.g. virsorter config '
+            '--get GROUP_INFO.RNA.MIN_GENOME_SIZE'),
 )
 def config(show, show_source, init_source, db_dir, set, get):
     '''CLI for managing configurations.
@@ -656,6 +757,11 @@ def config(show, show_source, init_source, db_dir, set, get):
             logging.critical(mes)
             sys.exit(1)
         else:
+            if not os.path.isdir(db_dir):
+                mes = (f'--db-dir {db_dir} does NOT exist yet; Make sure it '
+                        'is created later\n')
+                logging.warning(mes)
+
             init_config_template(SRC_CONFIG_DIR, USER_CONFIG_DIR, db_dir)
             sys.exit(0)
 
@@ -718,8 +824,11 @@ def config(show, show_source, init_source, db_dir, set, get):
                     sys.exit(1)
 
             last_key = keys[-1]
+
             try:
                 old_val = temp[last_key]
+                if os.path.exists(old_val):
+                    val = os.path.abspath(val)
                 temp[last_key] = val
             except KeyError as e:
                 mes = f'{last_key} is not a key in config file ({TEMPLATE})'
@@ -732,4 +841,3 @@ def config(show, show_source, init_source, db_dir, set, get):
                 YAML().dump(config, fw)
 
         sys.exit(0)
-            
